@@ -32,6 +32,7 @@ DEFAULT_TOPIC_ID ?= ech
 TRANSLATION_FALLBACK_CODE ?= de
 LANGUAGES ?= '[\"de\", \"en\", \"fr\", \"it\", \"rm\"]'
 LANGS ?= de fr it rm en
+HTMLFILES ?= index mobile embed
 TRANSLATE_GSPREAD_KEYS ?= 1F3R46w4PODfsbJq7jd79sapy3B7TXhQcYM7SEaccOA0
 TRANSLATE_CSV_FILES ?= "https://docs.google.com/spreadsheets/d/1F3R46w4PODfsbJq7jd79sapy3B7TXhQcYM7SEaccOA0/export?format=csv&gid=0"
 TRANSLATE_EMPTY_JSON ?= src/locales/empty.json
@@ -46,6 +47,7 @@ DEFAULT_EPSG_EXTEND ?= '[420000, 30000, 900000, 350000]'
 DEFAULT_ELEVATION_MODEL ?= COMB
 DEFAULT_TERRAIN ?= ch.swisstopo.terrain.3d
 SAUCELABS_TESTS ?=
+USER_NAME ?= $(shell id -un)
 
 ## Python interpreter can't have space in path name
 ## So prepend all python scripts with python cmd
@@ -90,6 +92,10 @@ help:
 	@echo "- deploybranch     Deploys current branch to test (note: takes code from github)"
 	@echo "- deploybranchint  Deploys current branch to test and int (note: takes code from github)"
 	@echo "- deploybranchdemo Deploys current branch to test and demo (note: takes code from github)"
+	@echo "- s3upload         Uploads current build to S3, from current directory or SNAPSHOT=xxx"
+	@echo "- s3activate       Activates version on S3 with VERSION=xxxxxxxxx"
+	@echo "- s3list           Lists uploaded version to S3"
+	@echo "- s3delete         Deletes version VERSION=xxxxxx on S3"
 	@echo "- ol               Update ol.js and ol-debug.js "
 	@echo "- translate        Generate the translation files (requires db user pwd in ~/.pgpass: dbServer:dbPort:*:dbUser:dbUserPwd)"
 	@echo "- help             Display this help"
@@ -101,6 +107,7 @@ help:
 	@echo "- MAPPROXY_URL Service URL    (build with: $(LAST_MAPPROXY_URL), current value: $(MAPPROXY_URL))"
 	@echo "- APACHE_BASE_PATH Base path  (build with: $(LAST_APACHE_BASE_PATH), current value: $(APACHE_BASE_PATH))"
 	@echo "- APACHE_BASE_DIRECTORY       (build with: $(LAST_APACHE_BASE_DIRECTORY), current value: $(APACHE_BASE_DIRECTORY))"
+	@echo "- VERSION                     (build with: $(LAST_VERSION), current value: $(VERSION))"
 
 	@echo
 
@@ -120,6 +127,7 @@ prod: prd/lib/ \
 	prd/locales/ \
 	prd/checker \
 	prd/cache/ \
+	prd/info.json \
 	prd/robots.txt
 
 .PHONY: dev
@@ -181,6 +189,31 @@ deployint: guard-SNAPSHOT
 .PHONY: deployprod
 deployprod: guard-SNAPSHOT
 	./scripts/deploysnapshot.sh $(SNAPSHOT) prod
+
+
+ifdef SNAPSHOT
+	CODE_DIR := /var/www/vhosts/mf-geoadmin3/private/snapshots/$(SNAPSHOT)/geoadmin/code/geoadmin/
+else
+  CODE_DIR := $(CURDIR)
+endif	
+
+.PHONY: s3upload
+s3upload: boto
+	echo $(CODE_DIR)
+	${PYTHON_CMD} ./scripts/s3manage.py upload $(CODE_DIR)
+
+
+.PHONY: s3activate
+s3activate: boto
+	${PYTHON_CMD} ./scripts/s3manage.py activate $(VERSION)
+
+.PHONY: s3list
+s3list: boto
+	${PYTHON_CMD} ./scripts/s3manage.py list
+
+.PHONY: s3delete
+s3delete: boto
+	${PYTHON_CMD} ./scripts/s3manage.py delete $(VERSION)
 
 .PHONY: deploybranch
 deploybranch: deploy/deploy-branch.cfg $(DEPLOY_ROOT_DIR)/$(GIT_BRANCH)/.git/config
@@ -365,7 +398,10 @@ prd/cache/: .build-artefacts/last-version \
 			.build-artefacts/last-api-url
 	mkdir -p $@
 	curl -q -o prd/cache/services http:$(API_URL)/rest/services
-	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang) http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
+	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang).json http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
+
+prd/info.json:
+	./scripts/info.sh $(VERSION) $(API_URL) > prd/info.json
 
 define buildpage
 	${PYTHON_CMD} ${MAKO_CMD} \
@@ -592,6 +628,9 @@ ${AUTOPEP8_CMD}: ${PYTHON_VENV}
 
 .build-artefacts/requirements.timestamp: ${PYTHON_VENV} requirements.txt
 	${PIP_CMD} install -r requirements.txt
+
+boto: ${PYTHON_VENV}
+	${PYTHON_CMD} ${PIP_CMD} install "boto==2.34.0"
 	touch $@
 
 ${PYTHON_VENV}:
