@@ -495,6 +495,10 @@ goog.require('ga_topic_service');
               var name = feature.get('name');
               var featureId = feature.getId();
               var layerId = feature.get('layerId') || layer.get('bodId');
+              if (layer.get('type') == 'KML') {
+                layerId = layer.label;
+                featureId = name;
+              }
               var id = layerId + '#' + featureId;
               htmlpopup = htmlpopup.
                   replace('{{id}}', id).
