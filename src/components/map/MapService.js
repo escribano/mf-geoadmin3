@@ -2258,7 +2258,19 @@ goog.require('ga_urlutils_service');
           gaTime.allowStatusUpdate = true;
           registerLayersPermalink(scope, map);
           // Listen for next topic change events
-          $rootScope.$on('gaPostTopicChange', addTopicSelectedLayers);
+          $rootScope.$on('gaTopicChange', function() {
+            // First we remove all layers that are selected
+            var toDelete = [];
+            angular.forEach(map.getLayers().getArray(), function(l) {
+              if (gaLayerFilters.selected(l)) {
+                toDelete.push(l);
+              }
+            });
+            angular.forEach(toDelete, function(l) {
+              map.removeLayer(l);
+            });
+            addTopicSelectedLayers();
+          });
         });
       };
     };
