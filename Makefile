@@ -94,6 +94,7 @@ help:
 	@echo "- deploybranchdemo Deploys current branch to test and demo (note: takes code from github)"
 	@echo "- s3upload         Uploads current build to S3, from current directory or SNAPSHOT=xxx"
 	@echo "- s3activate       Activates version on S3 with VERSION=xxxxxxxxx"
+	@echo "- s3info           Print build infos for version on S3 with VERSION=xxxxxxxxx"
 	@echo "- s3list           Lists uploaded version to S3"
 	@echo "- s3delete         Deletes version VERSION=xxxxxx on S3"
 	@echo "- ol               Update ol.js and ol-debug.js "
@@ -191,7 +192,7 @@ deployprod: guard-SNAPSHOT
 	./scripts/deploysnapshot.sh $(SNAPSHOT) prod
 
 .PHONY: s3upload
-s3upload: boto
+s3upload: boto3
 	@ if test "$(SNAPSHOT)"; then \
 		${PYTHON_CMD} ./scripts/s3manage.py upload  /var/www/vhosts/mf-geoadmin3/private/snapshots/$(SNAPSHOT)/geoadmin/code/geoadmin/ ; \
 	else \
@@ -200,15 +201,19 @@ s3upload: boto
 
 
 .PHONY: s3activate
-s3activate: boto
+s3activate: boto3
 	${PYTHON_CMD} ./scripts/s3manage.py activate $(VERSION)
 
 .PHONY: s3list
-s3list: boto
+s3list: boto3
 	${PYTHON_CMD} ./scripts/s3manage.py list
 
+.PHONY: s3info
+s3info: boto3
+	${PYTHON_CMD} ./scripts/s3manage.py info $(VERSION)
+
 .PHONY: s3delete
-s3delete: boto
+s3delete: boto3
 	${PYTHON_CMD} ./scripts/s3manage.py delete $(VERSION)
 
 .PHONY: deploybranch
@@ -397,7 +402,7 @@ prd/cache/: .build-artefacts/last-version \
 	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang).json http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
 
 prd/info.json:
-	./scripts/info.sh $(VERSION) $(API_URL) > prd/info.json
+	 ./scripts/info.sh $(VERSION) $(API_URL) $(GIT_BRANCH) $(USER_NAME)  > prd/info.json
 
 define buildpage
 	${PYTHON_CMD} ${MAKO_CMD} \
@@ -625,8 +630,8 @@ ${AUTOPEP8_CMD}: ${PYTHON_VENV}
 .build-artefacts/requirements.timestamp: ${PYTHON_VENV} requirements.txt
 	${PIP_CMD} install -r requirements.txt
 
-boto: ${PYTHON_VENV}
-	${PYTHON_CMD} ${PIP_CMD} install "boto==2.34.0"
+boto3: ${PYTHON_VENV}
+	${PYTHON_CMD} ${PIP_CMD} install "boto3==1.2.5"
 	touch $@
 
 ${PYTHON_VENV}:

@@ -37,6 +37,18 @@ else
     echo "API_URL is not set"
     exit 1
 fi
+if [ "$3" != "" ]; then
+    GIT_BRANCH=$3
+else
+    echo "GIT_BRANCH is not set"
+    exit 1
+fi
+if [ "$4" != "" ]; then
+    USER_NAME=$4
+else
+    echo "USER_NAME is not set"
+    exit 1
+fi
 
-printf '{\n  "branch":"%s",\n  "version": "%s",\n  "api_url": "%s",\n  "last_commit_hash":"%s",\n  "last_commit_date":"%s",\n  "user": "%s",\n  "build_date": "%s"\n}\n' "$(get_branch_name)" ${VERSION} ""${API_URL} "$(get_hash)" "$(get_last_commit_date)" "${USER}" "$(get_iso_date)" 
+printf '{\n  "branch":"%s",\n  "version": "%s",\n  "api_url": "%s",\n  "last_commit_hash":"%s",\n  "last_commit_date":"%s",\n  "user": "%s",\n  "build_date": "%s"\n}\n' "${GIT_BRANCH}" ${VERSION} ""${API_URL} "$(get_hash)" "$(get_last_commit_date)" "${USER_NAME}" "$(get_iso_date)" 
 

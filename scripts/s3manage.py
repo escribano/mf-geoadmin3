@@ -2,17 +2,21 @@
 # -*- coding: utf-8 -*-
 
 import re
-import boto
+import botocore
+import boto3
 import sys
 import os
+import json
 
 import StringIO
 import gzip
+from datetime import datetime
 
 import mimetypes
 mimetypes.init()
 
-BUCKET_NAME = "mf-geoadmin3-frankfurt"
+BUCKET_NAME = os.environ.get('BUCKET_NAME', None) 
+BUCKET_LOCATION = os.environ.get('BUCKET_LOCATION', 'eu-central-1')
 
 user = os.environ.get('USER')
 PROFILE_NAME = '{}_aws_admin'.format(user)
@@ -20,14 +24,33 @@ PROFILE_NAME = '{}_aws_admin'.format(user)
 
 NO_COMPRESS = ['image/png', 'image/jpeg', 'image/ico', 'application/x-font-ttf', 'application/x-font-opentype', 'application/vnd.ms-fontobject', 'application/vnd.ms-fontobject']
 
+headers = {}
 
 mimetypes.add_type('application/x-font-ttf', '.ttf')
 mimetypes.add_type('application/x-font-opentype', '.otf')
 mimetypes.add_type('application/vnd.ms-fontobject', '.eot')
 
 
-def _gzip_data(data):
 
+
+try:
+    session = boto3.session.Session(profile_name=PROFILE_NAME, region_name=BUCKET_LOCATION)
+except botocore.exceptions.ProfileNotFound as e:
+    print "You need to set PROFILE_NAME to a valid profile name in $HOME/.aws/credentials"
+    print e
+    sys.exit(1)
+except botocore.exceptions.BotoCoreError as e:
+    print "Cannot establish connection. Check you credentials ({}) and location ({}).".format(PROFILE_NAME, BUCKET_LOCATION)
+    print e
+    sys.exit(2)
+
+s3client = session.client('s3', config=boto3.session.Config(signature_version='s3v4'))
+s3 = session.resource('s3', config=boto3.session.Config(signature_version='s3v4'))
+
+bucket = s3.Bucket(BUCKET_NAME)
+
+
+def _gzip_data(data):
     out = None
     infile = StringIO.StringIO()
     try:
@@ -59,7 +82,7 @@ def save_to_s3(src, dest, cached=True, mimetype=None):
     try:
         with open(src, 'r') as f:
             data = f.read()
-    except EnvironmentError: 
+    except EnvironmentError:
         print "Cannot upload {}".format(src)
         sys.exit(2)
     if mimetype is None:
@@ -76,39 +99,34 @@ def _save_to_s3(in_data, dest, mimetype, compress=True, cached=True):
     content_encoding = None
     cache_control = 'max-age=31536000, public'
 
-    if compress and mimetype not in NO_COMPRESS:
+    extra_args = {}
 
+    if compress and mimetype not in NO_COMPRESS:
         data = _gzip_data(in_data)
         content_encoding = 'gzip'
         compressed = True
-    
-    if dest.endswith(tuple(['.js','.css','.xml', '.gz', '.|html'])):
+
+    if dest.endswith(tuple(['.js', '.css', '.xml', '.gz', '.|html'])):
         vary = True
-        
 
     print "Uploading {} - {}, gzip: {}, cache headers: {}".format(dest, mimetype, compressed, cached)
     if cached is False:
         cache_control = 'no-cache, no-store, max-age=0, must-revalidate'
 
+    extra_args['ACL'] = 'public-read'
+    extra_args['ContentType'] = mimetype
+    extra_args['CacheControl'] = cache_control
+
     try:
-        k = boto.s3.key.Key(bucket=bucket)
-        k.key = dest
-        k.set_metadata('Content-Type', mimetype)
-        k.content_type = mimetype
-        k.set_metadata('Cache-Control', cache_control)
-        k.cache_control = cache_control
-        k.content_type = mimetype
-        k.size = len(data)
         if compressed:
-            k.content_encoding = content_encoding
-            k.set_metadata('Content-Encoding', content_encoding)
-            k.set_metadata('Vary', 'Accept-Encoding')
-           
+            extra_args['ContentEncoding'] = content_encoding
+
         if cached is False:
-            k.set_metadata('Expires', 'Fri, 01 Jan 1990 00:00:00 GMT')
-        else:
-            k.content_encoding = None
-        k.set_contents_from_string(data, replace=True, policy='public-read')
+            extra_args['Expires'] = datetime(1990, 1, 1)
+            extra_args['Metadata'] = {'Pragma': 'no-cache'}
+
+        s3.Object(BUCKET_NAME, dest).put(Body=data, **extra_args)
+
     except Exception as e:
         print "Error while uploading {}: {}".format(dest, e)
 
@@ -121,18 +139,6 @@ def get_index_version(c):
         version = int(match[0])
 
     return version
-
-
-# TODO: Ugly hack
-os.environ['S3_USE_SIGV4'] = 'True'
-from boto.s3.connection import S3Connection
-
-
-s3 = S3Connection(profile_name=PROFILE_NAME,is_secure=False,host='s3.eu-central-1.amazonaws.com')
-bucket = s3.get_bucket(BUCKET_NAME)
-
-
-headers = {}
 
 
 def usage():
@@ -150,6 +156,9 @@ def usage():
     print
     print "  activate <version>"
     print "      activate the given 'version' (copy from <version>/index.<version>.html to index.html"
+    print
+    print "  info <version>"
+    print "      print build info on 'version' (branch name, build date, git hash, etc.) "
     print
     print "  delete <version>"
     print "      delete the given 'version' (both directory and indexes files"
@@ -188,11 +197,11 @@ def upload(version, base_dir):
                     relpath = os.path.relpath(path, os.path.commonprefix([base_dir, path]))
                     dest = relpath.replace('prd', VERSION)
                     if dest == relpath:
-                        dest = relpath.replace('src', VERSION +'/src' )
+                        dest = relpath.replace('src', VERSION + '/src')
                     save_to_s3(path, dest, cached=True)
 
     for n in ('index', 'embed', 'mobile'):
-        save_to_s3(os.path.join(base_dir,'prd/{}.html'.format(n)), '{}.{}.html'.format(n, VERSION), cached=False)
+        save_to_s3(os.path.join(base_dir, 'prd/{}.html'.format(n)), '{}.{}.html'.format(n, VERSION), cached=False)
 
     save_to_s3(os.path.join(base_dir, 'prd/cache/services'), '{}/services'.format(VERSION), cached=True, mimetype='application/js')
 
@@ -214,36 +223,61 @@ def upload(version, base_dir):
 
 
 def get_active_version():
-    k = boto.s3.key.Key(bucket)
-    k.key = 'index.html'
+    k = s3.Object(bucket.name, 'index.html')
     try:
-        c = k.get_contents_as_string()
+        c = k.get()["Body"].read()
         d = _unzip_data(c)
-    except boto.exception.S3ResponseError:
-        return 0
-    except IOError:
-        return 0
+    except botocore.exceptions.ClientError as e:
+        if 'NoSuchKey' in str(e):
+            print "No active version in bucket {}".format(BUCKET_NAME)
+            return 0
+        else:
+            print "Error: ", e
+            sys.exit(3)
+        
 
     return int(get_index_version(d))
 
 
 def version_exists(version):
-    files = bucket.list(prefix=str(version))
+    files = bucket.objects.filter(Prefix=str(version)).all()
 
     return len(list(files)) > 0
+
+
+def get_version_info(version):
+    obj = s3.Object(bucket.name, '{}/info.json'.format(version))
+    try:
+        content = obj.get()["Body"].read()
+        raw = _unzip_data(content)
+        data = json.loads(raw)
+    except botocore.exceptions.BotoCoreError:
+        return None
+    return data
 
 
 def list_version():
     active_version = int(get_active_version())
 
-    indexes = bucket.list(prefix="index")
-    p = re.compile(ur'index.(\d+).html')
+    indexes = bucket.objects.filter(Prefix="index").all()
 
+    p = re.compile(ur'index.(\d+).html')
+    print "Version      Build date"
+    print "-----------+------------------------"
     for index in indexes:
-        match = re.search(p, index.name)
+        match = re.search(p, index.key)
         if match:
             version = int(match.groups()[0])
             print version, index.last_modified, 'active' if version == active_version else ''
+
+
+def version_info(version):
+    info = get_version_info(version)
+    if info is None:
+        print "No info for version {}".format(version)
+        sys.exit(1)
+    for k in info.keys():
+        print "{}: {}".format(k, info[k])
 
 
 def delete_version(version):
@@ -255,17 +289,16 @@ def delete_version(version):
         print("Version '{}' is the active version. You cannot delete it".format(version))
         sys.exit()
 
-    result_set = bucket.list(prefix=str(version))
+    files = bucket.objects.filter(Prefix=str(version)).all()
 
-    indexes = [k.name for k in list(result_set)]
+    indexes = [{'Key': k.key} for k in files]
     for n in ('index', 'embed', 'mobile'):
-        k = boto.s3.key.Key(bucket)
         src_key_name = '{}.{}.html'.format(n, version)
-        indexes.append(src_key_name)
+        indexes.append({'Key': src_key_name})
 
-    result_set = bucket.delete_keys(indexes)
+    resp = s3client.delete_objects(Bucket=BUCKET_NAME, Delete={'Objects': indexes})
 
-    for v in result_set.deleted:
+    for v in resp['Deleted']:
         print v
 
 
@@ -279,37 +312,47 @@ def activate(version):
         sys.exit()
 
     for n in ('index', 'embed', 'mobile'):
-        k = boto.s3.key.Key(bucket)
         src_key_name = '{}.{}.html'.format(n, version)
-        print("{} --> {}.html".format( src_key_name, n))
-        k.key = src_key_name
+        print("{} --> {}.html".format(src_key_name, n))
 
-        bucket.copy_key(n + '.html', bucket.name, src_key_name, preserve_acl=True)
-    for j in ('robots.txt', 'geoadmin.appcache', 'checker'):
+        s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=n + '.html', ACL='public-read')
+
+    for j in ('robots.txt', 'geoadmin.{}.appcache'.format(version), 'checker'):
         src_key_name = '{}/{}'.format(version, j)
-        bucket.copy_key(os.path.basename(src_key_name), bucket.name, src_key_name, preserve_acl=True)
+        try:
+            s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=os.path.basename(src_key_name), ACL='public-read')
+        except botocore.exceptions.ClientError as e:
+            print "Cannot copy {}: {}".format(j, e)
+
     # src
-    result_set = bucket.list(prefix='{}/src'.format(version))
-    for k in result_set:
-         src_key_name = k.name
-         dst_key_name = src_key_name.replace('{}/'.format(version), '')
-         print("{} --> {}".format(src_key_name, dst_key_name))
-         bucket.copy_key(dst_key_name, bucket.name, src_key_name, preserve_acl=True)
+
+    files = bucket.objects.filter(Prefix='{}/src'.format(version)).all()
+
+    for k in files:
+        src_key_name = k.key
+        dst_key_name = src_key_name.replace('{}/'.format(version), '')
+        print("{} --> {}".format(src_key_name, dst_key_name))
+
+        s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=dst_key_name, ACL='public-read')
 
     print("\n\nPlease check it on {}".format(get_url()))
     print("  and {}".format(get_url('src/index.html')))
 
 
 def get_url(key_name='index.html'):
-    http_url = 'http://{bucket}.{host}/{key}'.format(
-        host=s3.server_name(),
-        bucket=bucket.name,
-        key=key_name)
-
-    return http_url
+    bucket_location = BUCKET_LOCATION
+    object_url = "https://s3-{0}.amazonaws.com/{1}/{2}".format(
+        bucket_location,
+        BUCKET_NAME,
+        key_name)
+    return object_url
 
 
 def main():
+    if BUCKET_NAME is None:
+        print "Please define the BUCKET_NAME you want to deploy."
+        sys.exit(2)
+
     get_url()
     if len(sys.argv) < 2:
         usage()
@@ -325,8 +368,6 @@ def main():
         else:
             base_dir = os.getcwd()
 
-        print 'base_dir', base_dir
-
         with open(os.path.join(base_dir, 'prd/index.html'), 'r') as f:
             ctx = f.read()
 
@@ -338,9 +379,9 @@ def main():
             response = raw_input("WARNING!!!\nVersion {} is the active one!!!\nDo you really want to upload it from '{}'?: [y/N]".format(VERSION, base_dir))
         else:
             if version_exists(VERSION) is False:
-                response = raw_input("Do you want to upload version '{}' from '{}'?: [y/N]".format(VERSION, base_dir))
+                response = raw_input("Do you want to upload version '{}' from '{} into bucket {}'?: [y/N]".format(VERSION, base_dir, BUCKET_NAME))
             else:
-                response = raw_input("Version '{}' already exists in AWS S3. Do you really want to overwrite it with files from '{}'?: [y/N]".format(VERSION, base_dir))
+                response = raw_input("Version '{}' already exists in bucket {}. Do you really want to overwrite it with files from '{}'?: [y/N]".format(VERSION, BUCKET_NAME, base_dir))
 
         if response != 'y':
             print "Aborting"
@@ -349,6 +390,10 @@ def main():
 
     elif str(sys.argv[1]) == 'list':
         list_version()
+
+    elif str(sys.argv[1]) == 'info' and len(sys.argv) == 3:
+        version = int(sys.argv[2])
+        version_info(version)
 
     elif str(sys.argv[1]) == 'activate' and len(sys.argv) == 3:
         version = int(sys.argv[2])
