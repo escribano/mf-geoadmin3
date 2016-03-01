@@ -56,8 +56,12 @@ def _unzip_data(compressed):
 
 def save_to_s3(src, dest, cached=True, mimetype=None):
 
-    with open(src, 'r') as f:
-        data = f.read()
+    try:
+        with open(src, 'r') as f:
+            data = f.read()
+    except EnvironmentError: 
+        print "Cannot upload {}".format(src)
+        sys.exit(2)
     if mimetype is None:
         mimetype, _ = mimetypes.guess_type(src)
 
@@ -188,21 +192,21 @@ def upload(version, base_dir):
                     save_to_s3(path, dest, cached=True)
 
     for n in ('index', 'embed', 'mobile'):
-        save_to_s3('prd/{}.html'.format(n), '{}.{}.html'.format(n, VERSION), cached=False)
+        save_to_s3(os.path.join(base_dir,'prd/{}.html'.format(n)), '{}.{}.html'.format(n, VERSION), cached=False)
 
-    save_to_s3('prd/cache/services', '{}/services'.format(VERSION), cached=True, mimetype='application/js')
-
-    for lang in ('de', 'fr', 'it', 'rm', 'en'):
-        save_to_s3('prd/cache/layersConfig.{}.json'.format(lang), '{}/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
-
-    save_to_s3('prd/geoadmin.{}.appcache'.format(VERSION), '{}/geoadmin.appcache'.format(VERSION), cached=False, mimetype='text/cache-manifest')
-    save_to_s3('prd/robots.txt', '{}/robots.txt'.format(VERSION), cached=False, mimetype='text/plain')
-    save_to_s3('prd/checker', '{}/checker'.format(VERSION), cached=False, mimetype='text/plain')
-
-    save_to_s3('prd/cache/services', '{}/src/services'.format(VERSION), cached=True, mimetype='application/js')
+    save_to_s3(os.path.join(base_dir, 'prd/cache/services'), '{}/services'.format(VERSION), cached=True, mimetype='application/js')
 
     for lang in ('de', 'fr', 'it', 'rm', 'en'):
-        save_to_s3('prd/cache/layersConfig.{}.json'.format(lang), '{}/src/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
+        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)), '{}/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
+
+    save_to_s3(os.path.join(base_dir, 'prd/geoadmin.{}.appcache'.format(VERSION)), '{}/geoadmin.appcache'.format(VERSION), cached=False, mimetype='text/cache-manifest')
+    save_to_s3(os.path.join(base_dir, 'prd/robots.txt'), '{}/robots.txt'.format(VERSION), cached=False, mimetype='text/plain')
+    save_to_s3(os.path.join(base_dir, 'prd/checker'), '{}/checker'.format(VERSION), cached=False, mimetype='text/plain')
+
+    save_to_s3(os.path.join(base_dir, 'prd/cache/services'), '{}/src/services'.format(VERSION), cached=True, mimetype='application/js')
+
+    for lang in ('de', 'fr', 'it', 'rm', 'en'):
+        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)), '{}/src/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
 
     print "Upload finished"
     print("\n\nPlease check it on {}\n".format(get_url("index.{}.html".format(VERSION))))
@@ -320,6 +324,8 @@ def main():
                 sys.exit(2)
         else:
             base_dir = os.getcwd()
+
+        print 'base_dir', base_dir
 
         with open(os.path.join(base_dir, 'prd/index.html'), 'r') as f:
             ctx = f.read()

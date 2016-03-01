@@ -190,17 +190,13 @@ deployint: guard-SNAPSHOT
 deployprod: guard-SNAPSHOT
 	./scripts/deploysnapshot.sh $(SNAPSHOT) prod
 
-
-ifdef SNAPSHOT
-	CODE_DIR := /var/www/vhosts/mf-geoadmin3/private/snapshots/$(SNAPSHOT)/geoadmin/code/geoadmin/
-else
-  CODE_DIR := $(CURDIR)
-endif	
-
 .PHONY: s3upload
 s3upload: boto
-	echo $(CODE_DIR)
-	${PYTHON_CMD} ./scripts/s3manage.py upload $(CODE_DIR)
+	@ if test "$(SNAPSHOT)"; then \
+		${PYTHON_CMD} ./scripts/s3manage.py upload  /var/www/vhosts/mf-geoadmin3/private/snapshots/$(SNAPSHOT)/geoadmin/code/geoadmin/ ; \
+	else \
+		${PYTHON_CMD} ./scripts/s3manage.py upload ; \
+	fi
 
 
 .PHONY: s3activate
