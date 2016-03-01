@@ -12,7 +12,7 @@ import gzip
 import mimetypes
 mimetypes.init()
 
-BUCKET_NAME = "mf-geoadmin3"
+BUCKET_NAME = "mf-geoadmin3-frankfurt"
 
 user = os.environ.get('USER')
 PROFILE_NAME = '{}_aws_admin'.format(user)
@@ -119,7 +119,12 @@ def get_index_version(c):
     return version
 
 
-s3 = boto.connect_s3(profile_name=PROFILE_NAME)
+# TODO: Ugly hack
+os.environ['S3_USE_SIGV4'] = 'True'
+from boto.s3.connection import S3Connection
+
+
+s3 = S3Connection(profile_name=PROFILE_NAME,is_secure=False,host='s3.eu-central-1.amazonaws.com')
 bucket = s3.get_bucket(BUCKET_NAME)
 
 
