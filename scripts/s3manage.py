@@ -20,7 +20,9 @@ BUCKET_LOCATION = os.environ.get('BUCKET_LOCATION', 'eu-central-1')
 
 user = os.environ.get('USER')
 PROFILE_NAME = '{}_aws_admin'.format(user)
-
+s3 = None
+s3client = None
+bucket = None
 
 NO_COMPRESS = ['image/png', 'image/jpeg', 'image/ico', 'application/x-font-ttf', 'application/x-font-opentype', 'application/vnd.ms-fontobject', 'application/vnd.ms-fontobject']
 
@@ -32,22 +34,23 @@ mimetypes.add_type('application/vnd.ms-fontobject', '.eot')
 
 
 
-
-try:
-    session = boto3.session.Session(profile_name=PROFILE_NAME, region_name=BUCKET_LOCATION)
-except botocore.exceptions.ProfileNotFound as e:
-    print "You need to set PROFILE_NAME to a valid profile name in $HOME/.aws/credentials"
-    print e
-    sys.exit(1)
-except botocore.exceptions.BotoCoreError as e:
-    print "Cannot establish connection. Check you credentials ({}) and location ({}).".format(PROFILE_NAME, BUCKET_LOCATION)
-    print e
-    sys.exit(2)
-
-s3client = session.client('s3', config=boto3.session.Config(signature_version='s3v4'))
-s3 = session.resource('s3', config=boto3.session.Config(signature_version='s3v4'))
-
-bucket = s3.Bucket(BUCKET_NAME)
+def init_connection():
+    global s3, s3client, bucket
+    try:
+        session = boto3.session.Session(profile_name=PROFILE_NAME, region_name=BUCKET_LOCATION)
+    except botocore.exceptions.ProfileNotFound as e:
+        print "You need to set PROFILE_NAME to a valid profile name in $HOME/.aws/credentials"
+        print e
+        sys.exit(1)
+    except botocore.exceptions.BotoCoreError as e:
+        print "Cannot establish connection. Check you credentials ({}) and location ({}).".format(PROFILE_NAME, BUCKET_LOCATION)
+        print e
+        sys.exit(2)
+    
+    s3client = session.client('s3', config=boto3.session.Config(signature_version='s3v4'))
+    s3 = session.resource('s3', config=boto3.session.Config(signature_version='s3v4'))
+    
+    bucket = s3.Bucket(BUCKET_NAME)
 
 
 def _gzip_data(data):
@@ -352,7 +355,8 @@ def main():
     if BUCKET_NAME is None:
         print "Please define the BUCKET_NAME you want to deploy."
         sys.exit(2)
-
+    if s3client is None:
+        init_connection()
     get_url()
     if len(sys.argv) < 2:
         usage()

@@ -48,6 +48,9 @@ DEFAULT_ELEVATION_MODEL ?= COMB
 DEFAULT_TERRAIN ?= ch.swisstopo.terrain.3d
 SAUCELABS_TESTS ?=
 USER_NAME ?= $(shell id -un)
+GIT_COMMIT_HASH ?= $(shell git rev-parse --verify HEAD)
+GIT_COMMIT_DATE ?= $(shell git log -1  --date=iso --pretty=format:%cd)
+CURRENT_DATE ?= $(shell date -u +"%Y-%m-%d %H:%M:%S %z")
 
 ## Python interpreter can't have space in path name
 ## So prepend all python scripts with python cmd
@@ -401,8 +404,17 @@ prd/cache/: .build-artefacts/last-version \
 	curl -q -o prd/cache/services http:$(API_URL)/rest/services
 	$(foreach lang, $(LANGS), curl -s --retry 3 -o prd/cache/layersConfig.$(lang).json http:$(API_URL)/rest/services/all/MapServer/layersConfig?lang=$(lang);)
 
-prd/info.json:
-	 ./scripts/info.sh $(VERSION) $(API_URL) $(GIT_BRANCH) $(USER_NAME)  > prd/info.json
+prd/info.json: src/info.mako.json
+	${MAKO_CMD} \
+		--var "version=$(VERSION)" \
+		--var "api_url=$(API_URL)" \
+		--var "mapproxy_url=$(MAPPROXY_URL)" \
+		--var "user_name=$(USER_NAME)" \
+		--var "git_branch=$(GIT_BRANCH)" \
+		--var "git_commit_date=$(GIT_COMMIT_DATE)" \
+		--var "git_commit_hash=$(GIT_COMMIT_HASH)" \
+		--var "build_date=$(CURRENT_DATE)"  $< > $@
+
 
 define buildpage
 	${PYTHON_CMD} ${MAKO_CMD} \
