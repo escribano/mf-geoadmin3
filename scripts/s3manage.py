@@ -15,7 +15,7 @@ from datetime import datetime
 import mimetypes
 mimetypes.init()
 
-BUCKET_NAME = os.environ.get('BUCKET_NAME', None) 
+BUCKET_NAME = os.environ.get('BUCKET_NAME', None)
 BUCKET_LOCATION = os.environ.get('BUCKET_LOCATION', 'eu-central-1')
 
 user = os.environ.get('USER')
@@ -24,14 +24,20 @@ s3 = None
 s3client = None
 bucket = None
 
-NO_COMPRESS = ['image/png', 'image/jpeg', 'image/ico', 'application/x-font-ttf', 'application/x-font-opentype', 'application/vnd.ms-fontobject', 'application/vnd.ms-fontobject']
+NO_COMPRESS = [
+    'image/png',
+    'image/jpeg',
+    'image/ico',
+    'application/x-font-ttf',
+    'application/x-font-opentype',
+    'application/vnd.ms-fontobject',
+    'application/vnd.ms-fontobject']
 
 headers = {}
 
 mimetypes.add_type('application/x-font-ttf', '.ttf')
 mimetypes.add_type('application/x-font-opentype', '.otf')
 mimetypes.add_type('application/vnd.ms-fontobject', '.eot')
-
 
 
 def init_connection():
@@ -43,13 +49,14 @@ def init_connection():
         print e
         sys.exit(1)
     except botocore.exceptions.BotoCoreError as e:
-        print "Cannot establish connection. Check you credentials ({}) and location ({}).".format(PROFILE_NAME, BUCKET_LOCATION)
+        print "Cannot establish connection. Check you credentials ({}) " + \
+                "and location ({}).".format(PROFILE_NAME, BUCKET_LOCATION)
         print e
         sys.exit(2)
-    
+
     s3client = session.client('s3', config=boto3.session.Config(signature_version='s3v4'))
     s3 = session.resource('s3', config=boto3.session.Config(signature_version='s3v4'))
-    
+
     bucket = s3.Bucket(BUCKET_NAME)
 
 
@@ -98,7 +105,6 @@ def _save_to_s3(in_data, dest, mimetype, compress=True, cached=True):
 
     data = in_data
     compressed = False
-    vary = False
     content_encoding = None
     cache_control = 'max-age=31536000, public'
 
@@ -108,9 +114,6 @@ def _save_to_s3(in_data, dest, mimetype, compress=True, cached=True):
         data = _gzip_data(in_data)
         content_encoding = 'gzip'
         compressed = True
-
-    if dest.endswith(tuple(['.js', '.css', '.xml', '.gz', '.|html'])):
-        vary = True
 
     print "Uploading {} - {}, gzip: {}, cache headers: {}".format(dest, mimetype, compressed, cached)
     if cached is False:
@@ -126,7 +129,7 @@ def _save_to_s3(in_data, dest, mimetype, compress=True, cached=True):
 
         if cached is False:
             extra_args['Expires'] = datetime(1990, 1, 1)
-            extra_args['Metadata'] = {'Pragma': 'no-cache'}
+            extra_args['Metadata'] = {'Pragma': 'no-cache', 'Vary': '*'}
 
         s3.Object(BUCKET_NAME, dest).put(Body=data, **extra_args)
 
@@ -154,14 +157,17 @@ def usage():
     print "     list available <version> in bucket"
     print
     print "  upload [dir]"
-    print "      upload content of /prd directory to bucket. You may specify a directory (default to current)."
-    print "      Active project is NOT changed. Project has to be statified (post PR https://github.com/geoadmin/mf-geoadmin3/pull/3078)"
+    print "      upload content of /prd directory to bucket. You may specify"
+    print "      a directory (default to current)."
+    print "      Active project is NOT changed. Project has to be statified, "
+    print "      i.e. after PR https://github.com/geoadmin/mf-geoadmin3/pull/3078"
     print
     print "  activate <version>"
-    print "      activate the given 'version' (copy from <version>/index.<version>.html to index.html"
+    print "      activate the given 'version', i.e."
+    print "      copy from <version>/index.<version>.html to index.html"
     print
     print "  info <version>"
-    print "      print build info on 'version' (branch name, build date, git hash, etc.) "
+    print "      print build info on 'version' (branch, build date, git hash...)"
     print
     print "  delete <version>"
     print "      delete the given 'version' (both directory and indexes files"
@@ -204,24 +210,67 @@ def upload(version, base_dir):
                     save_to_s3(path, dest, cached=True)
 
     for n in ('index', 'embed', 'mobile'):
-        save_to_s3(os.path.join(base_dir, 'prd/{}.html'.format(n)), '{}.{}.html'.format(n, VERSION), cached=False)
+        save_to_s3(
+            os.path.join(
+                base_dir,
+                'prd/{}.html'.format(n)),
+            '{}.{}.html'.format(
+                n,
+                VERSION),
+            cached=False)
 
-    save_to_s3(os.path.join(base_dir, 'prd/cache/services'), '{}/services'.format(VERSION), cached=True, mimetype='application/js')
+    save_to_s3(
+        os.path.join(
+            base_dir,
+            'prd/cache/services'),
+        '{}/services'.format(VERSION),
+        cached=True,
+        mimetype='application/js')
 
     for lang in ('de', 'fr', 'it', 'rm', 'en'):
-        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)), '{}/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
+        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)),
+                   '{}/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
 
-    save_to_s3(os.path.join(base_dir, 'prd/geoadmin.{}.appcache'.format(VERSION)), '{}/geoadmin.appcache'.format(VERSION), cached=False, mimetype='text/cache-manifest')
-    save_to_s3(os.path.join(base_dir, 'prd/robots.txt'), '{}/robots.txt'.format(VERSION), cached=False, mimetype='text/plain')
-    save_to_s3(os.path.join(base_dir, 'prd/checker'), '{}/checker'.format(VERSION), cached=False, mimetype='text/plain')
+    save_to_s3(
+        os.path.join(
+            base_dir,
+            'prd/geoadmin.{}.appcache'.format(VERSION)),
+        '{}/geoadmin.appcache'.format(VERSION),
+        cached=False,
+        mimetype='text/cache-manifest')
+    save_to_s3(
+        os.path.join(
+            base_dir,
+            'prd/robots.txt'),
+        '{}/robots.txt'.format(VERSION),
+        cached=False,
+        mimetype='text/plain')
+    save_to_s3(
+        os.path.join(
+            base_dir,
+            'prd/checker'),
+        '{}/checker'.format(VERSION),
+        cached=False,
+        mimetype='text/plain')
 
-    save_to_s3(os.path.join(base_dir, 'prd/cache/services'), '{}/src/services'.format(VERSION), cached=True, mimetype='application/js')
+    save_to_s3(
+        os.path.join(
+            base_dir,
+            'prd/cache/services'),
+        '{}/src/services'.format(VERSION),
+        cached=True,
+        mimetype='application/js')
 
     for lang in ('de', 'fr', 'it', 'rm', 'en'):
-        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)), '{}/src/layersConfig.{}.json'.format(VERSION, lang), cached=True, mimetype='application/js')
+        save_to_s3(os.path.join(base_dir, 'prd/cache/layersConfig.{}.json'.format(lang)),
+                   '{}/src/layersConfig.{}.json'.format(VERSION, lang),
+                   cached=True,
+                   mimetype='application/js')
+
+    check_url = get_url("index.{}.html".format(VERSION))
 
     print "Upload finished"
-    print("\n\nPlease check it on {}\n".format(get_url("index.{}.html".format(VERSION))))
+    print("\n\nPlease check it on {}\n".format(check_url))
     print("and {}\n".format(get_url("{}/src/index.html".format(VERSION))))
 
 
@@ -237,7 +286,6 @@ def get_active_version():
         else:
             print "Error: ", e
             sys.exit(3)
-        
 
     return int(get_index_version(d))
 
@@ -318,12 +366,23 @@ def activate(version):
         src_key_name = '{}.{}.html'.format(n, version)
         print("{} --> {}.html".format(src_key_name, n))
 
-        s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=n + '.html', ACL='public-read')
+        s3client.copy_object(
+            Bucket=BUCKET_NAME,
+            CopySource=BUCKET_NAME +
+            '/' +
+            src_key_name,
+            Key=n +
+            '.html',
+            ACL='public-read')
 
     for j in ('robots.txt', 'geoadmin.{}.appcache'.format(version), 'checker'):
         src_key_name = '{}/{}'.format(version, j)
         try:
-            s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=os.path.basename(src_key_name), ACL='public-read')
+            s3client.copy_object(
+                Bucket=BUCKET_NAME,
+                CopySource=BUCKET_NAME + '/' + src_key_name,
+                Key=os.path.basename(src_key_name),
+                ACL='public-read')
         except botocore.exceptions.ClientError as e:
             print "Cannot copy {}: {}".format(j, e)
 
@@ -336,7 +395,13 @@ def activate(version):
         dst_key_name = src_key_name.replace('{}/'.format(version), '')
         print("{} --> {}".format(src_key_name, dst_key_name))
 
-        s3client.copy_object(Bucket=BUCKET_NAME, CopySource=BUCKET_NAME + '/' + src_key_name, Key=dst_key_name, ACL='public-read')
+        s3client.copy_object(
+            Bucket=BUCKET_NAME,
+            CopySource=BUCKET_NAME +
+            '/' +
+            src_key_name,
+            Key=dst_key_name,
+            ACL='public-read')
 
     print("\n\nPlease check it on {}".format(get_url()))
     print("  and {}".format(get_url('src/index.html')))
@@ -357,7 +422,7 @@ def main():
         sys.exit(2)
     if s3client is None:
         init_connection()
-    get_url()
+
     if len(sys.argv) < 2:
         usage()
         sys.exit()
@@ -380,12 +445,18 @@ def main():
         active_version = get_active_version()
 
         if VERSION == active_version:
-            response = raw_input("WARNING!!!\nVersion {} is the active one!!!\nDo you really want to upload it from '{}'?: [y/N]".format(VERSION, base_dir))
+            response = raw_input(
+                "WARNING!!!\nVersion {} is the active one!!!\n" +
+                "Do you really want to upload it from '{}'?: [y/N]".format(VERSION, base_dir))
         else:
             if version_exists(VERSION) is False:
-                response = raw_input("Do you want to upload version '{}' from '{} into bucket {}'?: [y/N]".format(VERSION, base_dir, BUCKET_NAME))
+                response = raw_input(
+                    "Do you want to upload version '{}' from '{} " +
+                    "into bucket {}'?: [y/N]".format(VERSION, base_dir, BUCKET_NAME))
             else:
-                response = raw_input("Version '{}' already exists in bucket {}. Do you really want to overwrite it with files from '{}'?: [y/N]".format(VERSION, BUCKET_NAME, base_dir))
+                response = raw_input(
+                    "Version '{}' already exists in bucket {}. Do you really want to overwrite " +
+                    "it with files from '{}'?: [y/N]".format(VERSION, BUCKET_NAME, base_dir))
 
         if response != 'y':
             print "Aborting"
